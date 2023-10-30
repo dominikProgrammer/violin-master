@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Audio Frequency Analyzer</title>
+</head>
+<body>
+  <button onclick="toggleAudio()">Toggle Audio</button>
+  <div id="soundMeter"></div>
+
+  <script>
+    let stream = null;
+    let audioContext = null;
+    let analyser = null;
+    let isAudioPlaying = false;
+    const sounds = [
+      { name: 'A', value: 440 },
+      { name: 'B', value: 493.88 },
+      { name: 'C', value: 261.63 },
+      { name: 'C#', value: 277.18 },
+      { name: 'D', value: 293.66 },
+      { name: 'E', value: 329.63 },
+      { name: 'F', value: 349.23 },
+      { name: 'F#', value: 369.99 },
+      { name: 'G', value: 392 }
+    ];
+
+    const bufferSize = 2048;
+    const soundMeter = document.getElementById('soundMeter');
+    let lastFrequency = -1;
+    let frequencyLock = false;
+
+    function getSoundName(frequency) {
+      let closestSound = null;
+      let closestDifference = Infinity;
+
+      for (let i = 0; i < sounds.length; i++) {
+        const difference = Math.abs(frequency - sounds[i].value);
+        if (difference < closestDifference) {
+          closestSound = sounds[i];
+          closestDifference = difference;
+        }
+      }
+
+      return closestSound ? closestSound.name : 'Unknown';
+    }
+
+    async function startAudio() {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        audioContext = new AudioContext();
+        analyser = audioContext.createAnalyser();
+        analyser.fftSize = bufferSize;
+
+        const microphone = audioContext.createMediaStreamSource(stream);
+        microphone.connect(analyser);
+
+        analyser.connect(audioContext.destination);
+
+        function updateFrequency() {
+          if (!isAudioPlaying) return;
+
+          const dataArray = new Uint8Array(bufferSize);
+          analyser.getByteFrequencyData(dataArray);
+
+          const frequency = findDominantFrequency(dataArray, audioContext.sampleRate);
+          if (frequency !== -1 && (!frequencyLock || Math.abs(frequency - lastFrequency) > 10)) {
+            const closestSound = getSoundName(frequency);
+            soundMeter.innerHTML = 'Detected frequency: ' + frequency.toFixed(2) + 'Hz, Sound: ' + closestSound;
+            lastFrequency = frequency;
+            frequencyLock = true;
+          } else if (frequency === -1) {
+            frequencyLock = false;
+            soundMeter.innerHTML = 'Frequency not detected';
+          }
+
+          requestAnimationFrame(updateFrequency);
+        }
+
+        updateFrequency();
+      } catch (error) {
+        console.error('Error accessing microphone:', error);
+      }
+    }
+
+    function stopAudio() {
+      if (stream) {
+        stream.getTracks().forEach((track) => track.stop());
+      }
+      audioContext.close();
+      isAudioPlaying = false;
+      console.log('Audio stopped.');
+    }
+
+    function toggleAudio() {
+      if (isAudioPlaying) {
+        stopAudio();
+      } else {
+        startAudio();
+        isAudioPlaying = true;
+      }
+    }
+
+    function findDominantFrequency(dataArray, sampleRate) {
+      const binSize = sampleRate / bufferSize;
+      let maxAmplitude = -Infinity;
+      let dominantFrequency = -1;
+
+      for (let i = 0; i < dataArray.length; i++) {
+        const amplitude = dataArray[i] / 256; // Normalize to [0, 1]
+        if (amplitude > maxAmplitude) {
+          maxAmplitude = amplitude;
+          dominantFrequency = i * binSize;
+        }
+      }
+
+      return dominantFrequency;
+    }
+  </script>
+</body>
+</html>
